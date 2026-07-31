@@ -1,0 +1,2 @@
+# stok-usterki
+stok-usterki
