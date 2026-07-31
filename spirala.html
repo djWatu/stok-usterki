@@ -62,12 +62,15 @@
   </div>
 
   <script>
-    // ⚙️ KONFIGURACJA TABLETU: Ustaw "HALA" lub "SPIRALA"
-    const MIEJSCE = "SPIRALA - LINE 2"; // NA DRUGIM TABLECIE ZMIEŃ NA: "SPIRALA"
+    // ⚙️ KONFIGURACJA TABLETU:
+    // KLUCZ_BAZY musi dokładnie pasować do tego, co sprawdza odbiornik ("HALA" lub "SPIRALA")
+    const KLUCZ_BAZY = "SPIRALA"; 
+    // NAZWA_WYSWIETLANA to tekst, który zobaczy użytkownik na ekranie i w historii
+    const NAZWA_WYSWIETLANA = "SPIRALA - LINE 2"; 
 
-    const DATABASE_URL = "https://usterki-foliarka-etykieta-h1-default-rtdb.europe-west1.firebasedatabase.app//";
+    const DATABASE_URL = "https://usterki-foliarka-etykieta-h1-default-rtdb.europe-west1.firebasedatabase.app";
 
-    document.getElementById('location-title').innerText = `STREFA: ${MIEJSCE}`;
+    document.getElementById('location-title').innerText = `STREFA: ${NAZWA_WYSWIETLANA}`;
 
     let timerInterval = null;
     let aktywneZgloszenieData = null;
@@ -75,7 +78,7 @@
     function zglosUsterke(urzadzenie) {
       const teraz = Date.now();
       const payload = {
-        miejsce: MIEJSCE,
+        miejsce: NAZWA_WYSWIETLANA, // Zapisujemy ładną nazwę do wyświetlenia na dyżurce
         urzadzenie: urzadzenie,
         timestampStart: teraz,
         godzinaStart: new Date(teraz).toLocaleTimeString(),
@@ -83,17 +86,17 @@
         dzwiekWlaczony: true
       };
 
-      // Zapisujemy pod kluczem danej strefy (/alarm/HALA lub /alarm/SPIRALA)
-      fetch(`${DATABASE_URL}/alarm/${MIEJSCE}.json`, {
+      // Używamy KLUCZ_BAZY ("SPIRALA"), aby odbiornik to zauważył
+      fetch(`${DATABASE_URL}/alarm/${KLUCZ_BAZY}.json`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
     }
 
-    // Nasłuchiwanie stanu własnej strefy
+    // Nasłuchiwanie stanu własnej strefy przy użyciu KLUCZ_BAZY
     setInterval(() => {
-      fetch(`${DATABASE_URL}/alarm/${MIEJSCE}.json`)
+      fetch(`${DATABASE_URL}/alarm/${KLUCZ_BAZY}.json`)
         .then(res => res.json())
         .then(data => {
           const selectionButtons = document.getElementById('selection-buttons');
@@ -118,7 +121,8 @@
             activePanel.style.display = 'none';
             if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
           }
-        });
+        })
+        .catch(err => console.error("Błąd pobierania danych z Firebase:", err)); // Dodane zabezpieczenie
     }, 1000);
 
     function potwierdzPrzybycie() {
@@ -130,7 +134,7 @@
       const sek = czasReakcjiSekund % 60;
 
       const wpisHistorii = {
-        miejsce: MIEJSCE,
+        miejsce: NAZWA_WYSWIETLANA,
         urzadzenie: aktywneZgloszenieData.urzadzenie,
         data: new Date().toLocaleDateString(),
         godzinaZgloszenia: aktywneZgloszenieData.godzinaStart,
@@ -139,13 +143,13 @@
         czasReakcjiOpis: `${min}m ${sek}s`
       };
 
-      // Zapis do logów + reset alarmu strefy
+      // Zapis do logów + reset alarmu strefy przy użyciu KLUCZ_BAZY
       fetch(`${DATABASE_URL}/historia_zgloszen.json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(wpisHistorii)
       }).then(() => {
-        return fetch(`${DATABASE_URL}/alarm/${MIEJSCE}.json`, {
+        return fetch(`${DATABASE_URL}/alarm/${KLUCZ_BAZY}.json`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ aktywny: false, dzwiekWlaczony: false })
