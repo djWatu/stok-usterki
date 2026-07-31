@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analityka Stref: HALA i SPIRALA</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 30px; background-color: #f4f6f9; color: #333; }
+    .container { max-width: 1300px; margin: 0 auto; }
+    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    
+    .section-title { font-size: 1.2rem; font-weight: bold; margin: 25px 0 10px 0; color: #444; }
+
+    /* PORÓWNANIE STREF */
+    .places-summary { display: flex; gap: 20px; margin-bottom: 25px; }
+    .place-box {
+      flex: 1; padding: 20px; border-radius: 12px; color: white;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .place-box.hala { background: #00838f; }
+    .place-box.spirala { background: #e65100; }
+
+    /* SIATKA DNI */
+    .days-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; }
+    .day-card { background: white; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.07); overflow: hidden; border: 1px solid #e0e0e0; }
+    .day-header { background-color: #1e1e2e; color: white; padding: 15px 20px; font-size: 1.2rem; font-weight: bold; display: flex; justify-content: space-between; }
+    
+    .shifts-wrapper { padding: 15px; display: flex; flex-direction: column; gap: 12px; }
+    .shift-box { background: #f8f9fa; border-radius: 10px; padding: 12px; border-left: 4px solid #1565c0; }
+    .shift-box.night { border-left-color: #6a1b9a; }
+    .shift-title { font-size: 0.9rem; font-weight: bold; color: #444; margin-bottom: 8px; }
+
+    .breakdown-row { display: flex; justify-content: space-between; font-size: 0.85rem; background: #fff; padding: 6px 10px; border-radius: 6px; margin-top: 4px; border: 1px solid #eee; }
+    .tag { padding: 2px 6px; border-radius: 4px; font-weight: bold; color: white; font-size: 0.75rem; }
+    .tag-hala { background: #00838f; }
+    .tag-spirala { background: #e65100; }
+
+    .day-summary { background-color: #e8f5e9; padding: 12px 20px; font-size: 0.9rem; border-top: 1px solid #c8e6c9; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="header-row">
+      <h1>📊 Raport Stref: HALA vs SPIRALA</h1>
+      <select id="time-filter" style="padding: 10px; font-weight: bold;" onchange="pobierzIGrupujDane()">
+        <option value="30">Ostatnie 30 dni</option>
+        <option value="90" selected>Ostatnie 3 miesiące</option>
+        <option value="all">Wszystkie zgłoszenia</option>
+      </select>
+    </div>
+
+    <!-- SUMARYCZNE PORÓWNANIE STREF -->
+    <div class="places-summary">
+      <div class="place-box hala">
+        <div>
+          <div style="font-size: 1.3rem; font-weight: bold;">🏢 STREFA: HALA</div>
+          <div>Średni czas reakcji: <span id="hala-avg">--</span></div>
+        </div>
+        <div style="font-size: 2.5rem; font-weight: bold;" id="hala-count">0</div>
+      </div>
+
+      <div class="place-box spirala">
+        <div>
+          <div style="font-size: 1.3rem; font-weight: bold;">🌀 STREFA: SPIRALA</div>
+          <div>Średni czas reakcji: <span id="spirala-avg">--</span></div>
+        </div>
+        <div style="font-size: 2.5rem; font-weight: bold;" id="spirala-count">0</div>
+      </div>
+    </div>
+
+    <!-- SIATKA KALENDARZA -->
+    <div class="section-title">Rejestr Dób Produkcyjnych z rozbiciem na strefy</div>
+    <div id="days-container" class="days-grid"></div>
+  </div>
+
+  <script>
+    const DATABASE_URL = "https://usterki-foliarka-etykieta-h1-default-rtdb.europe-west1.firebasedatabase.app/";
+
+    function pobierzIGrupujDane() {
+      const filtrDni = document.getElementById('time-filter').value;
+
+      fetch(`${DATABASE_URL}/historia_zgloszen.json`)
+        .then(res => res.json())
+        .then(data => {
+          const container = document.getElementById('days-container');
+          container.innerHTML = '';
+          if (!data) return;
+
+          const wpisy = Object.values(data);
+          const teraz = Date.now();
+
+          let totHala = { count: 0, sek: 0 };
+          let totSpirala = { count: 0, sek: 0 };
+          const dobyMap = {};
+
+          wpisy.forEach(item => {
+            if (!item.godzinaZgloszenia || !item.data) return;
+
+            const sek = item.czasReakcjiSekundy || 0;
+            const miejsce = item.miejsce || "HALA"; // Domyślnie HALA dla starych wpisów
+
+            // Zliczanie ogólne stref
+            if (miejsce === 'HALA') { totHala.count++; totHala.sek += sek; }
+            else if (miejsce === 'SPIRALA') { totSpirala.count++; totSpirala.sek += sek; }
+
+            // Filtracja czasowa
+            const [godz, min] = item.godzinaZgloszenia.split(':').map(Number);
+            const parts = item.data.split('.');
+            let d = new Date(parts[2], parts[1] - 1, parts[0], godz, min);
+            if (filtrDni !== 'all' && (teraz - d.getTime()) / (1000 * 60 * 60 * 24) > parseInt(filtrDni)) return;
+
+            // Doba produkcyjna (06:00 - 06:00)
+            let rolaZmiany = (godz >= 6 && godz < 18) ? 'dzienna' : 'nocna';
+            let dDoba = new Date(parts[2], parts[1] - 1, parts[0]);
+            if (godz < 6) dDoba.setDate(dDoba.getDate() - 1);
+
+            const kluczDoby = dDoba.toISOString().split('T')[0];
+            const etykieta = dDoba.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+            if (!dobyMap[kluczDoby]) {
+              dobyMap[kluczDoby] = {
+                etykieta: etykieta,
+                dzienna: { ilosc: 0, sekundy: 0, hala: 0, spirala: 0, f: 0, e: 0 },
+                nocna:   { ilosc: 0, sekundy: 0, hala: 0, spirala: 0, f: 0, e: 0 }
+              };
+            }
+
+            const shift = (rolaZmiany === 'dzienna') ? dobyMap[kluczDoby].dzienna : dobyMap[kluczDoby].nocna;
+            shift.ilosc++;
+            shift.sekundy += sek;
+            if (miejsce === 'HALA') shift.hala++; else shift.spirala++;
+            if (item.urzadzenie === 'FOLIARKA') shift.f++; else shift.e++;
+          });
+
+          // Wypełnienie kart stref
+          document.getElementById('hala-count').innerText = totHala.count;
+          document.getElementById('hala-avg').innerText = totHala.count > 0 ? formatujSekundy(Math.round(totHala.sek / totHala.count)) : '--';
+          document.getElementById('spirala-count').innerText = totSpirala.count;
+          document.getElementById('spirala-avg').innerText = totSpirala.count > 0 ? formatujSekundy(Math.round(totSpirala.sek / totSpirala.count)) : '--';
+
+          // Generowanie widoku kalendarza
+          Object.keys(dobyMap).sort().reverse().forEach(klucz => {
+            const doba = dobyMap[klucz];
+            const sumaZgloszen = doba.dzienna.ilosc + doba.nocna.ilosc;
+            const sumaSekund = doba.dzienna.sekundy + doba.nocna.sekundy;
+
+            const card = document.createElement('div');
+            card.className = 'day-card';
+            card.innerHTML = `
+              <div class="day-header">
+                <span>Doba: ${doba.etykieta}</span>
+                <span>Zgłoszeń: ${sumaZgloszen}</span>
+              </div>
+              <div class="shifts-wrapper">
+                <!-- Zmiana I -->
+                <div class="shift-box">
+                  <div class="shift-title">☀️ ZMIANA I (06:00 - 18:00) | Łącznie: ${doba.dzienna.ilosc}</div>
+                  <div class="breakdown-row">
+                    <span class="tag tag-hala">HALA: ${doba.dzienna.hala}</span>
+                    <span class="tag tag-spirala">SPIRALA: ${doba.dzienna.spirala}</span>
+                    <span style="color:#666;">Foliarki: ${doba.dzienna.f} | Etykieciarki: ${doba.dzienna.e}</span>
+                  </div>
+                </div>
+                <!-- Zmiana II -->
+                <div class="shift-box night">
+                  <div class="shift-title">🌙 ZMIANA II (18:00 - 06:00) | Łącznie: ${doba.nocna.ilosc}</div>
+                  <div class="breakdown-row">
+                    <span class="tag tag-hala">HALA: ${doba.nocna.hala}</span>
+                    <span class="tag tag-spirala">SPIRALA: ${doba.nocna.spirala}</span>
+                    <span style="color:#666;">Foliarki: ${doba.nocna.f} | Etykieciarki: ${doba.nocna.e}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="day-summary">
+                <strong>ŚREDNI CZAS REAKCJI DOBY: ${sumaZgloszen > 0 ? formatujSekundy(Math.round(sumaSekund / sumaZgloszen)) : '--'}</strong>
+              </div>
+            `;
+            container.appendChild(card);
+          });
+        });
+    }
+
+    function formatujSekundy(sek) {
+      return `${Math.floor(sek / 60)}m ${sek % 60}s`;
+    }
+
+    pobierzIGrupujDane();
+    setInterval(pobierzIGrupujDane, 10000);
+  </script>
+</body>
+</html>

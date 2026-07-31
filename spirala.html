@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Tablet Zgłoszeniowy</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      display: flex; flex-direction: column; height: 100vh; margin: 0;
+      font-family: 'Segoe UI', sans-serif; padding: 20px; background-color: #1e1e2e;
+      color: white; user-select: none;
+    }
+    .header-location {
+      text-align: center; font-size: 2.2rem; font-weight: 900;
+      background: #2a2a3e; padding: 12px; border-radius: 15px; margin-bottom: 20px;
+      letter-spacing: 2px; color: #4fc3f7; border: 2px solid #0288d1;
+    }
+    .buttons-container { display: flex; flex: 1; gap: 20px; }
+    .btn {
+      flex: 1; border: none; border-radius: 20px; color: white; font-size: 3rem;
+      font-weight: bold; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; cursor: pointer; box-shadow: 0 10px 20px rgba(0,0,0,0.4);
+    }
+    .btn:active { transform: scale(0.96); }
+    .foliarka { background-color: #2e7d32; }
+    .etykieciarka { background-color: #1565c0; }
+    .icon { font-size: 6rem; margin-bottom: 20px; }
+
+    #active-panel {
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      flex: 1; background-color: #2a2a3e; border-radius: 20px; padding: 20px; text-align: center;
+    }
+    .device-title { font-size: 3.5rem; font-weight: bold; color: #ffca28; }
+    .timer-display { font-size: 5rem; font-weight: bold; margin: 20px 0; font-family: monospace; }
+    .btn-arrive {
+      background-color: #2e7d32; color: white; border: none; padding: 25px 50px;
+      font-size: 2.3rem; font-weight: bold; border-radius: 20px; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header-location" id="location-title">STREFA: --</div>
+
+  <!-- Ekran Wyboru -->
+  <div class="buttons-container" id="selection-buttons">
+    <button class="btn foliarka" onclick="zglosUsterke('FOLIARKA')">
+      <span class="icon">📦</span> FOLIARKA
+    </button>
+    <button class="btn etykieciarka" onclick="zglosUsterke('ETYKIECIARKA')">
+      <span class="icon">🏷️</span> ETYKIECIARKA
+    </button>
+  </div>
+
+  <!-- Ekran Odliczania -->
+  <div id="active-panel">
+    <div style="font-size: 1.8rem; color: #aaa;">OCZEKIWANIE NA TECHNIKA</div>
+    <div class="device-title" id="active-device">FOLIARKA</div>
+    <div class="timer-display" id="live-timer">00:00</div>
+    <button class="btn-arrive" onclick="potwierdzPrzybycie()">✔ TECHNIK PRZYBYŁ (ZATRZYMAJ CZAS)</button>
+  </div>
+
+  <script>
+    // ⚙️ KONFIGURACJA TABLETU: Ustaw "HALA" lub "SPIRALA"
+    const MIEJSCE = "SPIRALA - LINE 2"; // NA DRUGIM TABLECIE ZMIEŃ NA: "SPIRALA"
+
+    const DATABASE_URL = "https://usterki-foliarka-etykieta-h1-default-rtdb.europe-west1.firebasedatabase.app//";
+
+    document.getElementById('location-title').innerText = `STREFA: ${MIEJSCE}`;
+
+    let timerInterval = null;
+    let aktywneZgloszenieData = null;
+
+    function zglosUsterke(urzadzenie) {
+      const teraz = Date.now();
+      const payload = {
+        miejsce: MIEJSCE,
+        urzadzenie: urzadzenie,
+        timestampStart: teraz,
+        godzinaStart: new Date(teraz).toLocaleTimeString(),
+        aktywny: true,
+        dzwiekWlaczony: true
+      };
+
+      // Zapisujemy pod kluczem danej strefy (/alarm/HALA lub /alarm/SPIRALA)
+      fetch(`${DATABASE_URL}/alarm/${MIEJSCE}.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    // Nasłuchiwanie stanu własnej strefy
+    setInterval(() => {
+      fetch(`${DATABASE_URL}/alarm/${MIEJSCE}.json`)
+        .then(res => res.json())
+        .then(data => {
+          const selectionButtons = document.getElementById('selection-buttons');
+          const activePanel = document.getElementById('active-panel');
+
+          if (data && data.aktywny === true) {
+            aktywneZgloszenieData = data;
+            selectionButtons.style.display = 'none';
+            activePanel.style.display = 'flex';
+            document.getElementById('active-device').innerText = data.urzadzenie;
+
+            if (!timerInterval) {
+              timerInterval = setInterval(() => {
+                const roznicaSekund = Math.floor((Date.now() - data.timestampStart) / 1000);
+                const min = String(Math.floor(roznicaSekund / 60)).padStart(2, '0');
+                const sek = String(roznicaSekund % 60).padStart(2, '0');
+                document.getElementById('live-timer').innerText = `${min}:${sek}`;
+              }, 1000);
+            }
+          } else {
+            selectionButtons.style.display = 'flex';
+            activePanel.style.display = 'none';
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+          }
+        });
+    }, 1000);
+
+    function potwierdzPrzybycie() {
+      if (!aktywneZgloszenieData) return;
+
+      const teraz = Date.now();
+      const czasReakcjiSekund = Math.floor((teraz - aktywneZgloszenieData.timestampStart) / 1000);
+      const min = Math.floor(czasReakcjiSekund / 60);
+      const sek = czasReakcjiSekund % 60;
+
+      const wpisHistorii = {
+        miejsce: MIEJSCE,
+        urzadzenie: aktywneZgloszenieData.urzadzenie,
+        data: new Date().toLocaleDateString(),
+        godzinaZgloszenia: aktywneZgloszenieData.godzinaStart,
+        godzinaReakcji: new Date(teraz).toLocaleTimeString(),
+        czasReakcjiSekundy: czasReakcjiSekund,
+        czasReakcjiOpis: `${min}m ${sek}s`
+      };
+
+      // Zapis do logów + reset alarmu strefy
+      fetch(`${DATABASE_URL}/historia_zgloszen.json`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(wpisHistorii)
+      }).then(() => {
+        return fetch(`${DATABASE_URL}/alarm/${MIEJSCE}.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ aktywny: false, dzwiekWlaczony: false })
+        });
+      });
+    }
+  </script>
+</body>
+</html>

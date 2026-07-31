@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Tablet B - Odbiornik Technika</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; height: 100vh; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; font-family: 'Segoe UI', sans-serif;
+      background-color: #121212; color: white; text-align: center; user-select: none;
+    }
+    .status-ok { font-size: 3rem; color: #4caf50; }
+    
+    body.alarm-active {
+      background-color: #b71c1c; animation: blink 1s infinite alternate;
+    }
+    @keyframes blink {
+      from { background-color: #b71c1c; } to { background-color: #d32f2f; }
+    }
+
+    #alarm-box { display: none; flex-direction: column; align-items: center; gap: 15px; }
+    .alert-card {
+      background: rgba(0,0,0,0.4); padding: 20px 40px; border-radius: 20px;
+      border: 3px solid #ffca28; font-size: 2.8rem; font-weight: 900;
+    }
+
+    .btn-mute {
+      padding: 20px 40px; font-size: 2rem; font-weight: bold; color: white;
+      background-color: #ff9800; border: none; border-radius: 20px; cursor: pointer; margin-top: 15px;
+    }
+    #start-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #121212;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="start-overlay">
+    <h1 style="font-size: 2.5rem;">TABLET ODBIORCZY (DYŻURKA)</h1>
+    <button class="btn-mute" style="background-color: #2e7d32;" onclick="uruchomSystem()">AKTYWUJ ODBIORNIK</button>
+  </div>
+
+  <div id="normal-box">
+    <div class="status-ok">✔ BRAK ZGŁOSZEŃ</div>
+    <div style="color: #888; font-size: 1.3rem; margin-top: 10px;">Monitorowanie stref: HALA oraz SPIRALA</div>
+  </div>
+
+  <div id="alarm-box">
+    <div id="alerts-list"></div>
+    <button class="btn-mute" onclick="wyciszWszystkieDzwieki()">🔕 WYŁĄCZ SYRENĘ I IDŹ DO ZGŁOSZENIA</button>
+  </div>
+
+  <script>
+    const DATABASE_URL = "https://usterki-foliarka-etykieta-h1-default-rtdb.europe-west1.firebasedatabase.app//";
+    let audioCtx = null, alarmAudioInterval = null;
+
+    function uruchomSystem() {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      document.getElementById('start-overlay').style.display = 'none';
+      nassluchujBaze();
+    }
+
+    function grajDzwiek() {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.4);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+    }
+
+    function startAudio() { if (!alarmAudioInterval) { grajDzwiek(); alarmAudioInterval = setInterval(grajDzwiek, 500); } }
+    function stopAudio() { if (alarmAudioInterval) { clearInterval(alarmAudioInterval); alarmAudioInterval = null; } }
+
+    function nassluchujBaze() {
+      setInterval(() => {
+        fetch(`${DATABASE_URL}/alarm.json`)
+          .then(res => res.json())
+          .then(data => {
+            if (!data) return;
+
+            const aktywneAlramy = [];
+            let wlaczycSyrene = false;
+
+            // Sprawdzamy stan obu stref (HALA i SPIRALA)
+            ['HALA', 'SPIRALA'].forEach(strefa => {
+              if (data[strefa] && data[strefa].aktywny === true) {
+                aktywneAlramy.push(data[strefa]);
+                if (data[strefa].dzwiekWlaczony === true) wlaczycSyrene = true;
+              }
+            });
+
+            if (aktywneAlramy.length > 0) {
+              document.getElementById('normal-box').style.display = 'none';
+              document.getElementById('alarm-box').style.display = 'flex';
+
+              // Budowanie listy z podziałem na strefy
+              const listHtml = aktywneAlramy.map(a => `
+                <div class="alert-card">📍 ${a.miejsce}: ${a.urzadzenie}</div>
+              `).join('');
+              document.getElementById('alerts-list').innerHTML = listHtml;
+
+              if (wlaczycSyrene) {
+                document.body.classList.add('alarm-active');
+                startAudio();
+              } else {
+                document.body.classList.remove('alarm-active');
+                stopAudio();
+              }
+            } else {
+              document.body.classList.remove('alarm-active');
+              document.getElementById('normal-box').style.display = 'block';
+              document.getElementById('alarm-box').style.display = 'none';
+              stopAudio();
+            }
+          });
+      }, 1000);
+    }
+
+    function wyciszWszystkieDzwieki() {
+      ['HALA', 'SPIRALA'].forEach(strefa => {
+        fetch(`${DATABASE_URL}/alarm/${strefa}.json`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dzwiekWlaczony: false })
+        });
+      });
+    }
+  </script>
+</body>
+</html>
