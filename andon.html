@@ -54,11 +54,18 @@
   </div>
 
   <script>
-    const DATABASE_URL = "https://usterki-foliarka-etykieta-h1-default-rtdb.europe-west1.firebasedatabase.app//";
+    // POPRAWKA 1: Prawidłowy adres URL bez podwójnego ukośnika
+    const DATABASE_URL = "https://usterki-foliarka-etykieta-h1-default-rtdb.europe-west1.firebasedatabase.app";
     let audioCtx = null, alarmAudioInterval = null;
 
     function uruchomSystem() {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // POPRAWKA 2: Wymuszenie odblokowania dźwięku na urządzeniach mobilnych
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+
       document.getElementById('start-overlay').style.display = 'none';
       nassluchujBaze();
     }
@@ -72,24 +79,44 @@
       osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.4);
       gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
-      osc.connect(gain); gain.connect(audioCtx.destination);
-      osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+      osc.connect(gain); 
+      gain.connect(audioCtx.destination);
+      osc.start(); 
+      osc.stop(audioCtx.currentTime + 0.4);
     }
 
-    function startAudio() { if (!alarmAudioInterval) { grajDzwiek(); alarmAudioInterval = setInterval(grajDzwiek, 500); } }
-    function stopAudio() { if (alarmAudioInterval) { clearInterval(alarmAudioInterval); alarmAudioInterval = null; } }
+    function startAudio() { 
+      if (!alarmAudioInterval) { 
+        grajDzwiek(); 
+        alarmAudioInterval = setInterval(grajDzwiek, 500); 
+      } 
+    }
+    
+    function stopAudio() { 
+      if (alarmAudioInterval) { 
+        clearInterval(alarmAudioInterval); 
+        alarmAudioInterval = null; 
+      } 
+    }
 
     function nassluchujBaze() {
       setInterval(() => {
         fetch(`${DATABASE_URL}/alarm.json`)
           .then(res => res.json())
           .then(data => {
-            if (!data) return;
+            
+            // POPRAWKA 3: Obsługa braku danych (null), powrót do ekranu "BRAK ZGŁOSZEŃ"
+            if (!data) {
+              document.body.classList.remove('alarm-active');
+              document.getElementById('normal-box').style.display = 'block';
+              document.getElementById('alarm-box').style.display = 'none';
+              stopAudio();
+              return;
+            }
 
             const aktywneAlramy = [];
             let wlaczycSyrene = false;
 
-            // Sprawdzamy stan obu stref (HALA i SPIRALA)
             ['HALA', 'SPIRALA'].forEach(strefa => {
               if (data[strefa] && data[strefa].aktywny === true) {
                 aktywneAlramy.push(data[strefa]);
@@ -101,7 +128,6 @@
               document.getElementById('normal-box').style.display = 'none';
               document.getElementById('alarm-box').style.display = 'flex';
 
-              // Budowanie listy z podziałem na strefy
               const listHtml = aktywneAlramy.map(a => `
                 <div class="alert-card">📍 ${a.miejsce}: ${a.urzadzenie}</div>
               `).join('');
@@ -120,7 +146,8 @@
               document.getElementById('alarm-box').style.display = 'none';
               stopAudio();
             }
-          });
+          })
+          .catch(err => console.error("Błąd pobierania danych z Firebase:", err));
       }, 1000);
     }
 
